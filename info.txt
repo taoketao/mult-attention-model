@@ -1,0 +1,12 @@
+Notes                                                                         |
+
+- use virtual environment venv for proper matplotlib version (ie > 1.3.1)
+- use ipython to workaround reinstalling tensorflow in the virtualenv
+- note: no docker available.
+
+Both mram.py and ram.py are changed in this directory. In directory <RAM>, the 
+ram.py is unchanged.
+
+- UPDATE: moved mram.py to _mram.py and have new mram2.py.  This new mram2.py
+will output [MANY!] images with the name meant for saving session in ./summary
+The overhaul will occur here.
