@@ -52,9 +52,10 @@ no_display_env = True # added by MORGAN: for a $DISPLAY-less environment such as
 draw = 1
 animate = 0  # 10-22-16 MORGAN: this ON and no_display_env is todo.
 
-# conditions
-translateMnist = 1 # MORGAN: What does this do?
-nAttn = 1; # MORGAN: this was added. A postitive integer.
+# condition
+translateMnist = 1 # MORGAN: What does this do? update: looks like it randomizes the locations 
+ # of initial glimpses and therefore decreases permitted # of glimpses & bandwidth from 6->4
+nAttn = 3; # MORGAN: this was added. A postitive integer.
 eyeCentered = 0
 
 preTraining = 1
@@ -65,19 +66,31 @@ drawReconsturction = 0 # default 1.  10-22-16 MORGAN: this ON and no_display_env
 MNIST_SIZE = 28
 translated_img_size = 60             # side length of the picture
 
-if translateMnist:
+if translateMnist: # MORGAN: I think this is the true situation
     print "TRANSLATED MNIST"
-    img_size = translated_img_size
-    depth = 3  # number of zooms
-    sensorBandwidth = 12
-    minRadius = 6  # zooms -> minRadius * 2**<depth_level>
+    if nAttn == 1:
+        img_size = translated_img_size
+        depth = 3  # number of zooms
+        sensorBandwidth = 12
+        minRadius = 6  # zooms -> minRadius * 2**<depth_level>
 
-    initLr = 5e-3
-    lrDecayRate = .995
-    lrDecayFreq = 500
-    momentumValue = .9
-    batch_size = 20
+        initLr = 5e-3
+        lrDecayRate = .995
+        lrDecayFreq = 500
+        momentumValue = .9
+        batch_size = 20
+    else: # other limited parameters. For now they are identical.
+        img_size = translated_img_size
+        depth = 3  # number of zooms
+        sensorBandwidth = 12
+        minRadius = 6  # zooms -> minRadius * 2**<depth_level>
 
+        initLr = 5e-3
+        lrDecayRate = .995
+        lrDecayFreq = 500
+        momentumValue = .9
+        batch_size = 20
+        
 else:
     print "CENTERED MNIST"
     img_size = MNIST_SIZE
@@ -173,14 +186,63 @@ def glimpseSensor(img, normLoc):
 
     return zooms
 
+def repeatMe(M, rank, pos=-1):
+    if pos<0: 
+        pos = rank-1
+    if rank==2:
+        if pos==1:
+            return tf.tile(M, tf.pack([1,tf.shape(M)[1]]))
+        elif pos==0:
+            return tf.tile(M, tf.pack([tf.shape(M)[0],1]))
+    elif rank==3:
+        if pos==2:
+            return tf.tile(M, tf.pack([1,1,tf.shape(M)[2]]))
+        elif pos==1:
+            return tf.tile(M, tf.pack([1,tf.shape(M)[1],1]))
+        elif pos==0:
+            return tf.tile(M, tf.pack([tf.shape(M)[0],1,1]))
+
+def get_glimpses(locs, nAttn): # TODO MORGAN: resume work here
+    glimpse_inputs = []
+    print locs.get_shape(), locs[:,:,0].get_shape()
+    for i in xrange(nAttn):
+        glimpse_input = glimpseSensor(inputs_placeholder, locs[:,:,i]) # MORGAN: slicing cause dims down
+        glimpse_input = tf.reshape(glimpse_input, (batch_size, totalSensorBandwidth))
+        glimpse_inputs.append(glimpse_input)
+    #glimpses_input = tf.pack(glimpse_inputs, 2)
+    print 'G:', glimpse_inputs[0].get_shape(), tf.pack(glimpse_inputs).get_shape()
+    glimpses_mat = tf.transpose(tf.pack(glimpse_inputs), [1,0,2])
+            # ^ Now, its last dim has nAttn elements.
+    # tf.tile(C, tf.pack([1, 1, tf.shape(A)[2]]))
+    Wg_g_h_R0 = repeatMe(Wg_g_h, 3, 0)
+    glimpses_R3 = repeatMe(glimpses_mat, 3, -1)
+    print "H:", glimpses_mat.get_shape(), Wg_g_h.get_shape(), Bg_g_h.get_shape()
+    print "I:", Wg_g_h_R0.get_shape(), glimpses_R3.get_shape()
+    
+    tf.matmul(glimpses_mat, Wg_g_h_R0).get_shape()
+
+    # the hidden units that process location & the input
+    act_glimpse_hidden = tf.nn.relu(tf.matmul(glimpses_mat, Wg_g_h) + Bg_g_h)
+    act_loc_hidden = tf.nn.relu(tf.matmul(locs, Wg_l_h) + Bg_l_h)
+
+    # the hidden units that integrates the location & the glimpses
+    glimpseFeature1 = tf.nn.relu(tf.matmul(act_glimpse_hidden, Wg_hg_gf1) + tf.matmul(act_loc_hidden, Wg_hl_gf1) + Bg_hlhg_gf1)
+    # return g
+    # glimpseFeature2 = tf.matmul(glimpseFeature1, Wg_gf1_gf2) + Bg_gf1_gf2
+    return glimpseFeature1
+
+
+
 # implements the input network
 def get_glimpse(loc):
     # get input using the previous location
+    print loc.get_shape()
     glimpse_input = glimpseSensor(inputs_placeholder, loc)
     glimpse_input = tf.reshape(glimpse_input, (batch_size, totalSensorBandwidth))
 
     # the hidden units that process location & the input
     act_glimpse_hidden = tf.nn.relu(tf.matmul(glimpse_input, Wg_g_h) + Bg_g_h)
+    print "X:", glimpse_input.get_shape(), Wg_g_h.get_shape(),  Bg_g_h.get_shape(), act_glimpse_hidden.get_shape()
     act_loc_hidden = tf.nn.relu(tf.matmul(loc, Wg_l_h) + Bg_l_h)
 
     # the hidden units that integrates the location & the glimpses
@@ -190,11 +252,15 @@ def get_glimpse(loc):
     return glimpseFeature1
 
 
-def get_next_input(output):
+
+# ------------------------------------------ MORGAN temp, for utility right now 10/22/16
+
+def get_next_input(output): # MORGAN: this is unaffected by nAttr, so no changes made.
     # the next location is computed by the location network
     baseline = tf.sigmoid(tf.matmul(output,Wb_h_b) + Bb_h_b)
     baselines.append(baseline)
     # compute the next location, then impose noise
+    print "output, Wl_h_l shapes:", output.get_shape(), Wl_h_l.get_shape()
     if eyeCentered:
         # add the last sampled glimpse location
         # TODO max(-1, min(1, u + N(output, sigma) + prevLoc))
@@ -230,7 +296,10 @@ def affineTransform(x,output_dim):
 
 def model():
     # initialize the location under unif[-1,1], for all example in the batch
-    initial_loc = tf.random_uniform((batch_size, 2), minval=-1, maxval=1)
+    if nAttn==1:
+        initial_loc = tf.random_uniform((batch_size, 2), minval=-1, maxval=1)
+    else:
+        initial_loc = tf.random_uniform((batch_size, 2, nAttn), minval=-1, maxval=1)
     mean_locs.append(initial_loc)
     mean_locs_stopGrad.append(tf.stop_gradient(initial_loc))
 
@@ -239,7 +308,10 @@ def model():
     sampled_locs_stopGrad.append(tf.stop_gradient(initial_loc))
 
     # get the input using the input network
-    initial_glimpse = get_glimpse(initial_loc)
+    if nAttn==1:
+        initial_glimpse = get_glimpse(initial_loc)
+    else:
+        initial_glimpse = get_glimpses(initial_loc, nAttn) # ..anything else?
 
     # set up the recurrent structure
     inputs = [0] * nGlimpses
@@ -453,8 +525,8 @@ with tf.Graph().as_default():
       labels = tf.placeholder("float32", shape=[batch_size, n_classes])
       labels_placeholder = tf.placeholder(tf.float32, shape=(batch_size), name="labels_raw")
       onehot_labels_placeholder = tf.placeholder(tf.float32, shape=(batch_size, 10), name="labels_onehot")
-      inputs_placeholder = tf.placeholder(tf.float32, shape=(batch_size, img_size * img_size, nAttn), \
-                           name="images")
+      inputs_placeholder = tf.placeholder(tf.float32, shape=(batch_size, img_size * img_size), \
+                           name="images") # MORGAN tag here.
 
     # declare the model parameters, here're naming rule:
     # the 1st captical letter: weights or bias (W = weights, B = bias)
@@ -486,12 +558,12 @@ with tf.Graph().as_default():
         Wa_h_a = weight_variable((cell_out_size, n_classes), "actionNet_wts_hidden_action", True)
         Ba_h_a = weight_variable((1,n_classes),  "actionNet_bias_hidden_action", True)
     else:
-        # MORGAN list of matrices that are changed: Wg_l_h, Bg_l_h, Wl_h_l
+        # MORGAN list of matrices that are changed: Wg_l_h, Bg_l_h, Wl_h_l, Wg_g_h, Bg_g_h
         Wg_l_h = weight_variable((2, hl_size,nAttn), "glimpseNet_wts_location_hidden", True  )
         Bg_l_h = weight_variable((1,hl_size,nAttn), "glimpseNet_bias_location_hidden", True)
 
-        Wg_g_h = weight_variable((totalSensorBandwidth, hg_size), "glimpseNet_wts_glimpse_hidden", True)
-        Bg_g_h = weight_variable((1,hg_size), "glimpseNet_bias_glimpse_hidden", True)
+        Wg_g_h = weight_variable((nAttn, totalSensorBandwidth,hg_size), "glimpseNet_wts_glimpse_hidden", True)
+        Bg_g_h = weight_variable((1,hg_size,nAttn), "glimpseNet_bias_glimpse_hidden", True)
 
         Wg_hg_gf1 = weight_variable((hg_size, g_size), "glimpseNet_wts_hiddenGlimpse_glimpseFeature1", True)
         Wg_hl_gf1 = weight_variable((hl_size, g_size), "glimpseNet_wts_hiddenLocation_glimpseFeature1", True)
@@ -678,7 +750,7 @@ with tf.Graph().as_default():
 
                 if draw:
                     if no_display_env:
-                        drawMGlimpses(nextX, nextY, nextX[0,:], )
+                        drawMGlimpses(nextX, nextY, nextX[0,:], img_size, sampled_locs_fetched)
                         plt.savefig(simulationName+'_train_'+str(outfilecount)+'.png')
                         outfilecount+=1
                         #TODO
