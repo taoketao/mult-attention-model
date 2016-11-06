@@ -59,7 +59,7 @@ nAttn = 3; # MORGAN: this was added. A postitive integer.
 eyeCentered = 0
 
 preTraining = 1
-preTraining_epoch = 61# default: 20000
+preTraining_epoch = 21# default: 20000
 drawReconsturction = 0 # default 1.  10-22-16 MORGAN: this ON and no_display_env is todo.
 
 # about translation
@@ -113,16 +113,16 @@ loc_sd = 0.11               # std when setting the location
 
 # network units
 hg_size = 128               #
-hl_size = 128               #
+hl_size = 127               #
 g_size = 256                #
-cell_size = 256             #
+cell_size = 255             #
 cell_out_size = cell_size   #
 
 # paramters about the training examples
 n_classes = 10              # card(Y)
 
 # training parameters
-max_iters = 101 # default: 1000000
+max_iters = 4 # default: 1000000
 SMALL_NUM = 1e-10
 
 # resource prellocation
@@ -203,46 +203,32 @@ def repeatMe(M, rank, pos=-1):
             return tf.tile(M, tf.pack([tf.shape(M)[0],1,1]))
 
 def get_glimpses(locs, nAttn): # TODO MORGAN: resume work here
-    glimpse_inputs = []
-    print locs.get_shape(), locs[:,:,0].get_shape()
+    features = []
     for i in xrange(nAttn):
         glimpse_input = glimpseSensor(inputs_placeholder, locs[:,:,i]) # MORGAN: slicing cause dims down
         glimpse_input = tf.reshape(glimpse_input, (batch_size, totalSensorBandwidth))
-        glimpse_inputs.append(glimpse_input)
-    #glimpses_input = tf.pack(glimpse_inputs, 2)
-    print 'G:', glimpse_inputs[0].get_shape(), tf.pack(glimpse_inputs).get_shape()
-    glimpses_mat = tf.transpose(tf.pack(glimpse_inputs), [1,0,2])
-            # ^ Now, its last dim has nAttn elements.
-    # tf.tile(C, tf.pack([1, 1, tf.shape(A)[2]]))
-    Wg_g_h_R0 = repeatMe(Wg_g_h, 3, 0)
-    glimpses_R3 = repeatMe(glimpses_mat, 3, -1)
-    print "H:", glimpses_mat.get_shape(), Wg_g_h.get_shape(), Bg_g_h.get_shape()
-    print "I:", Wg_g_h_R0.get_shape(), glimpses_R3.get_shape()
-    
-    tf.matmul(glimpses_mat, Wg_g_h_R0).get_shape()
+        
+        # the hidden units that process location & the input
+        act_glimpse_hidden = tf.nn.relu(tf.matmul(glimpse_input, Wg_g_h) + Bg_g_h)
+        act_loc_hidden = tf.nn.relu(tf.matmul(locs[:,:,i], Wg_l_h) + Bg_l_h)
 
-    # the hidden units that process location & the input
-    act_glimpse_hidden = tf.nn.relu(tf.matmul(glimpses_mat, Wg_g_h) + Bg_g_h)
-    act_loc_hidden = tf.nn.relu(tf.matmul(locs, Wg_l_h) + Bg_l_h)
-
-    # the hidden units that integrates the location & the glimpses
-    glimpseFeature1 = tf.nn.relu(tf.matmul(act_glimpse_hidden, Wg_hg_gf1) + tf.matmul(act_loc_hidden, Wg_hl_gf1) + Bg_hlhg_gf1)
-    # return g
-    # glimpseFeature2 = tf.matmul(glimpseFeature1, Wg_gf1_gf2) + Bg_gf1_gf2
-    return glimpseFeature1
-
+        # the hidden units that integrates the location & the glimpses
+        glimpseFeature1 = tf.nn.relu(tf.matmul(act_glimpse_hidden, Wg_hg_gf1) + tf.matmul(act_loc_hidden, Wg_hl_gf1) + Bg_hlhg_gf1)
+        # return g
+        # glimpseFeature2 = tf.matmul(glimpseFeature1, Wg_gf1_gf2) + Bg_gf1_gf2
+        features.append(glimpseFeature1)
+    # return features ...for now
+    return tf.concat(1,features)  # concat to shape: (batches, imsize * nAttn)
 
 
 # implements the input network
 def get_glimpse(loc):
     # get input using the previous location
-    print loc.get_shape()
     glimpse_input = glimpseSensor(inputs_placeholder, loc)
     glimpse_input = tf.reshape(glimpse_input, (batch_size, totalSensorBandwidth))
 
     # the hidden units that process location & the input
     act_glimpse_hidden = tf.nn.relu(tf.matmul(glimpse_input, Wg_g_h) + Bg_g_h)
-    print "X:", glimpse_input.get_shape(), Wg_g_h.get_shape(),  Bg_g_h.get_shape(), act_glimpse_hidden.get_shape()
     act_loc_hidden = tf.nn.relu(tf.matmul(loc, Wg_l_h) + Bg_l_h)
 
     # the hidden units that integrates the location & the glimpses
@@ -257,6 +243,8 @@ def get_glimpse(loc):
 
 def get_next_input(output): # MORGAN: this is unaffected by nAttr, so no changes made.
     # the next location is computed by the location network
+    # MORGAN lines:
+    print "tag [03]", output.get_shape(), Wb_h_b.get_shape(), Bb_h_b.get_shape()
     baseline = tf.sigmoid(tf.matmul(output,Wb_h_b) + Bb_h_b)
     baselines.append(baseline)
     # compute the next location, then impose noise
@@ -265,23 +253,36 @@ def get_next_input(output): # MORGAN: this is unaffected by nAttr, so no changes
         # add the last sampled glimpse location
         # TODO max(-1, min(1, u + N(output, sigma) + prevLoc))
         mean_loc = tf.maximum(-1.0, tf.minimum(1.0, tf.matmul(output, Wl_h_l) + sampled_locs[-1] ))
+        print "tag [05]"
     else:
+        print "tag [04]. output, Wl_h_l:", output.get_shape(), Wl_h_l.get_shape()
         mean_loc = tf.matmul(output, Wl_h_l)
+        mean_loc = tf.reshape(mean_loc, [batch_size, 2, nAttn])
 
     # mean_loc = tf.stop_gradient(mean_loc)
     mean_locs.append(mean_loc)
+    print " tag [08]: mean_loc shape", mean_loc.get_shape()
     mean_locs_stopGrad.append(tf.stop_gradient(mean_loc))
 
     # add noise
     # sample_loc = tf.tanh(mean_loc + tf.random_normal(mean_loc.get_shape(), 0, loc_sd))
-    sample_loc = tf.maximum(-1.0, tf.minimum(1.0, mean_loc + tf.random_normal(mean_loc.get_shape(), 0, loc_sd)))
+    if nAttn==1:
+        sample_loc = tf.maximum(-1.0, tf.minimum(1.0, \
+            mean_loc + tf.random_normal(mean_loc.get_shape(), 0, loc_sd)))
+    else:
+        sample_loc = tf.maximum(-1.0, tf.minimum(1.0, \
+            mean_loc + tf.random_normal(mean_loc.get_shape(), 0, loc_sd)))
+        sample_loc = tf.reshape(sample_loc, [batch_size, 2, nAttn])
 
     # don't propagate throught the locations
     # sample_loc = tf.stop_gradient(sample_loc)
     sampled_locs.append(sample_loc)
     sampled_locs_stopGrad.append(tf.stop_gradient(sample_loc))
 
-    return get_glimpse(sample_loc)
+    if nAttn==1:
+        return get_glimpse(sample_loc)
+    else:
+        return get_glimpses(sample_loc, nAttn)
 
 
 def affineTransform(x,output_dim):
@@ -304,14 +305,16 @@ def model():
     mean_locs_stopGrad.append(tf.stop_gradient(initial_loc))
 
     initial_loc = tf.tanh(initial_loc + tf.random_normal(initial_loc.get_shape(), 0, loc_sd))
+    print 'initial_loc:', initial_loc
     sampled_locs.append(initial_loc)
     sampled_locs_stopGrad.append(tf.stop_gradient(initial_loc))
 
     # get the input using the input network
     if nAttn==1:
-        initial_glimpse = get_glimpse(initial_loc)
+        initial_glimpse = get_glimpse(initial_loc) # MORGAN this yields a single glimpe
     else:
-        initial_glimpse = get_glimpses(initial_loc, nAttn) # ..anything else?
+        initial_glimpse = get_glimpses(initial_loc, nAttn) # MORGAN yields a list of glimpses
+        print nAttn, "glimpses taken."
 
     # set up the recurrent structure
     inputs = [0] * nGlimpses
@@ -327,7 +330,22 @@ def model():
         # forward prop
         with tf.variable_scope("coreNetwork", reuse=REUSE):
             # the next hidden state is a function of the previous hidden state and the current glimpse
-            hiddenState = tf.nn.relu(affineTransform(hiddenState_prev, cell_size) + (tf.matmul(glimpse, Wc_g_h) + Bc_g_h))
+            print cell_size, hiddenState_prev.get_shape(), glimpse.get_shape(), Wc_g_h.get_shape(), Bc_g_h.get_shape()
+#            hiddenState = tf.nn.relu(affineTransform(hiddenState_prev, cell_size * nAttn) + \
+#                                     (tf.matmul(glimpse, Wc_g_h) + Bc_g_h))
+            hiddenState_0 = affineTransform(hiddenState_prev, cell_size) 
+#                                     (tf.matmul(glimpse, Wc_g_h) + Bc_g_h))
+            print "hiddenState_0", hiddenState_0.get_shape()
+            print "  shapes: glimpse, Wc_g_h:", glimpse.get_shape(), Wc_g_h.get_shape()
+            intermediate_0 = tf.matmul(glimpse, Wc_g_h)
+            print "intermediate_0", intermediate_0.get_shape()
+            intermediate_1 = intermediate_0 +  Bc_g_h
+            print "intermediate_1", intermediate_1.get_shape()
+            hiddenState_1 = hiddenState_0 + intermediate_1
+            print "hiddenState_1", hiddenState_1.get_shape()
+            hiddenState = tf.nn.relu(hiddenState_1)
+#            hiddenState = tf.nn.relu(affineTransform(hiddenState_prev, cell_size * nAttn) + \
+#                                     (tf.matmul(glimpse, Wc_g_h) + Bc_g_h))
 
         # save the current glimpse and the hidden state
         inputs[t] = glimpse
@@ -336,10 +354,12 @@ def model():
         if t != nGlimpses -1:
             glimpse = get_next_input(hiddenState)
         else:
-            baseline = tf.sigmoid(tf.matmul(hiddenState, Wb_h_b) + Bb_h_b)
+            baseline = tf.sigmoid(tf.matmul(hiddenState, Wb_h_b) + Bb_h_b) 
+            # MORGAN: perhaps combine the multiple attentions here?
             baselines.append(baseline)
         REUSE = True  # share variables for later recurrence
 
+    print 'sampled_locs shapes:', [s.get_shape() for s in sampled_locs]
     return outputs
 
 
@@ -369,25 +389,41 @@ def calc_reward(outputs):
     # get the baseline
     b = tf.pack(baselines)
     b = tf.concat(2, [b, b])
-    b = tf.reshape(b, (batch_size, (nGlimpses) * 2))
+    print 'tag {12}: baselines shape:', b.get_shape(), [B.get_shape() for B in baselines]
+    if nAttn==1:
+        b = tf.reshape(b, (batch_size, (nGlimpses) * 2))
+    else:
+        b = tf.reshape(b, (batch_size, (nGlimpses) * 2))
+        #b = tf.reshape(b, (batch_size, nGlimpses*2, nAttn))
+        print "tag [09] b shape:", b.get_shape()
     no_grad_b = tf.stop_gradient(b)
 
     # get the action(classification)
     p_y = tf.nn.softmax(tf.matmul(outputs, Wa_h_a) + Ba_h_a)
     max_p_y = tf.arg_max(p_y, 1)
+    print 'tag {13}: max_p_y shape, p_y shape',max_p_y.get_shape(), p_y.get_shape()
     correct_y = tf.cast(labels_placeholder, tf.int64)
 
     # reward for all examples in the batch
     R = tf.cast(tf.equal(max_p_y, correct_y), tf.float32)
     reward = tf.reduce_mean(R) # mean reward
-    R = tf.reshape(R, (batch_size, 1))
+    print R.get_shape()
+    if nAttn==1:
+        R = tf.reshape(R, (batch_size, 1))
+    else:
+        R = tf.reshape(R, (batch_size, 1))
+        #R = tf.reshape(R, (batch_size, 1, nAttn))
     R = tf.tile(R, [1, (nGlimpses)*2])
+    print "tag [11] R shape:", R.get_shape()
 
     # get the location
     p_loc = gaussian_pdf(mean_locs_stopGrad, sampled_locs_stopGrad)
     p_loc = tf.tanh(p_loc)
     # p_loc_orig = p_loc
-    p_loc = tf.reshape(p_loc, (batch_size, (nGlimpses) * 2))
+    if nAttn==1:
+        p_loc = tf.reshape(p_loc, (batch_size, (nGlimpses) * 2))
+    else:
+        p_loc = tf.reshape(p_loc, (batch_size, (nGlimpses) * 2, nAttn))
 
     # define the cost function
     J = tf.concat(1, [tf.log(p_y + SMALL_NUM) * (onehot_labels_placeholder), tf.log(p_loc + SMALL_NUM) * (R - no_grad_b)])
@@ -544,13 +580,13 @@ with tf.Graph().as_default():
         Wg_hl_gf1 = weight_variable((hl_size, g_size), "glimpseNet_wts_hiddenLocation_glimpseFeature1", True)
         Bg_hlhg_gf1 = weight_variable((1,g_size), "glimpseNet_bias_hGlimpse_hLocs_glimpseFeature1", True)
 
-        Wc_g_h = weight_variable((cell_size, g_size), "coreNet_wts_glimpse_hidden", True)
-        Bc_g_h = weight_variable((1,g_size), "coreNet_bias_glimpse_hidden", True)
+        Wc_g_h = weight_variable((g_size, cell_size), "coreNet_wts_glimpse_hidden", True)
+        Bc_g_h = weight_variable((1,cell_size), "coreNet_bias_glimpse_hidden", True)
 
         Wr_h_r = weight_variable((cell_out_size, img_size**2), "reconstructionNet_wts_hidden_action", True)
         Br_h_r = weight_variable((1, img_size**2), "reconstructionNet_bias_hidden_action", True)
 
-        Wb_h_b = weight_variable((g_size, 1), "baselineNet_wts_hiddenState_baseline", True)
+        Wb_h_b = weight_variable((cell_size, 1), "baselineNet_wts_hiddenState_baseline", True)
         Bb_h_b = weight_variable((1,1), "baselineNet_bias_hiddenState_baseline", True)
 
         Wl_h_l = weight_variable((cell_out_size, 2), "locationNet_wts_hidden_location", True)
@@ -559,26 +595,34 @@ with tf.Graph().as_default():
         Ba_h_a = weight_variable((1,n_classes),  "actionNet_bias_hidden_action", True)
     else:
         # MORGAN list of matrices that are changed: Wg_l_h, Bg_l_h, Wl_h_l, Wg_g_h, Bg_g_h
-        Wg_l_h = weight_variable((2, hl_size,nAttn), "glimpseNet_wts_location_hidden", True  )
-        Bg_l_h = weight_variable((1,hl_size,nAttn), "glimpseNet_bias_location_hidden", True)
+        # update: above not true.
+        # update: after meeting with Andrew, recommends combining the multiple glimpses in the equation
+        #   that makes the corenet from glimpseFeatures and reccurent previous hidden.
+        # new changed matrices: Wc_g_h, Bc_g_h
+        # new updates, 10/31: Wl_h_l, Wc_g_h, Bb_h_b, Wb_h_b
+        Wg_l_h = weight_variable((2, hl_size), "glimpseNet_wts_location_hidden", True  )
+        Bg_l_h = weight_variable((1,hl_size), "glimpseNet_bias_location_hidden", True)
 
-        Wg_g_h = weight_variable((nAttn, totalSensorBandwidth,hg_size), "glimpseNet_wts_glimpse_hidden", True)
-        Bg_g_h = weight_variable((1,hg_size,nAttn), "glimpseNet_bias_glimpse_hidden", True)
+        Wg_g_h = weight_variable(( totalSensorBandwidth,hg_size), "glimpseNet_wts_glimpse_hidden", True)
+        Bg_g_h = weight_variable((1,hg_size), "glimpseNet_bias_glimpse_hidden", True)
 
         Wg_hg_gf1 = weight_variable((hg_size, g_size), "glimpseNet_wts_hiddenGlimpse_glimpseFeature1", True)
         Wg_hl_gf1 = weight_variable((hl_size, g_size), "glimpseNet_wts_hiddenLocation_glimpseFeature1", True)
         Bg_hlhg_gf1 = weight_variable((1,g_size), "glimpseNet_bias_hGlimpse_hLocs_glimpseFeature1", True)
 
-        Wc_g_h = weight_variable((cell_size, g_size), "coreNet_wts_glimpse_hidden", True)
-        Bc_g_h = weight_variable((1,g_size), "coreNet_bias_glimpse_hidden", True)
+        Wc_g_h = weight_variable((g_size*nAttn, cell_size), "coreNet_wts_glimpse_hidden", True)
+        Bc_g_h = weight_variable((1, cell_size), "coreNet_bias_glimpse_hidden", True)
 
         Wr_h_r = weight_variable((cell_out_size, img_size**2), "reconstructionNet_wts_hidden_action", True)
         Br_h_r = weight_variable((1, img_size**2), "reconstructionNet_bias_hidden_action", True)
 
-        Wb_h_b = weight_variable((g_size, 1), "baselineNet_wts_hiddenState_baseline", True)
+        Wb_h_b = weight_variable((cell_size, 1), "baselineNet_wts_hiddenState_baseline", True)
         Bb_h_b = weight_variable((1,1), "baselineNet_bias_hiddenState_baseline", True)
 
-        Wl_h_l = weight_variable((cell_out_size, 2, nAttn), "locationNet_wts_hidden_location", True)
+        # MORGAN: change following line: increase dimensions by 1, size nAttn?
+        Wl_h_l = weight_variable((cell_out_size, 2*nAttn), "locationNet_wts_hidden_location", True)
+        # MORGAN: Suspected bug makes this the better option potentially:
+        #Wl_h_l = weight_variable((cell_out_size, 2), "locationNet_wts_hidden_location", True)
 
         Wa_h_a = weight_variable((cell_out_size, n_classes), "actionNet_wts_hidden_action", True)
         Ba_h_a = weight_variable((1,n_classes),  "actionNet_bias_hidden_action", True)
@@ -588,21 +632,46 @@ with tf.Graph().as_default():
     outputs = model()
 
     # convert list of tensors to one big tensor
-    sampled_locs = tf.concat(0, sampled_locs)
-    sampled_locs = tf.reshape(sampled_locs, (nGlimpses, batch_size, 2))
-    sampled_locs = tf.transpose(sampled_locs, [1, 0, 2])
+    print sampled_locs
+    print tf.pack(baselines).get_shape() # == (nGlimpses x batchsize x 1)
+    # MORGAN todo: update this to reflect nAttn differences.
+    # The following has a miscommunication.  Three lines below this errs.
+    if nAttn==1:
+        sampled_locs = tf.concat(0, sampled_locs)
+        sampled_locs = tf.reshape(sampled_locs, (nGlimpses, batch_size, 2))
+        sampled_locs = tf.transpose(sampled_locs, [1, 0, 2])
 
-    mean_locs = tf.concat(0, mean_locs)
-    mean_locs = tf.reshape(mean_locs, (nGlimpses, batch_size, 2))
-    mean_locs = tf.transpose(mean_locs, [1, 0, 2])
+        mean_locs = tf.concat(0, mean_locs)
+        mean_locs = tf.reshape(mean_locs, (nGlimpses, batch_size, 2))
+        mean_locs = tf.transpose(mean_locs, [1, 0, 2])
 
-    sampled_locs_stopGrad = tf.concat(0, sampled_locs_stopGrad)
-    sampled_locs_stopGrad = tf.reshape(sampled_locs_stopGrad, (nGlimpses, batch_size, 2))
-    sampled_locs_stopGrad = tf.transpose(sampled_locs_stopGrad, [1, 0, 2])
+        sampled_locs_stopGrad = tf.concat(0, sampled_locs_stopGrad)
+        sampled_locs_stopGrad = tf.reshape(sampled_locs_stopGrad, (nGlimpses, batch_size, 2))
+        sampled_locs_stopGrad = tf.transpose(sampled_locs_stopGrad, [1, 0, 2])
 
-    mean_locs_stopGrad = tf.concat(0, mean_locs_stopGrad)
-    mean_locs_stopGrad = tf.reshape(mean_locs_stopGrad, (nGlimpses, batch_size, 2))
-    mean_locs_stopGrad = tf.transpose(mean_locs_stopGrad, [1, 0, 2])
+        mean_locs_stopGrad = tf.concat(0, mean_locs_stopGrad)
+        mean_locs_stopGrad = tf.reshape(mean_locs_stopGrad, (nGlimpses, batch_size, 2))
+        mean_locs_stopGrad = tf.transpose(mean_locs_stopGrad, [1, 0, 2])
+
+    else:
+        sampled_locs = tf.concat(0, sampled_locs)
+        print "tag [06]", (nGlimpses, batch_size, 2, nAttn), sampled_locs.get_shape()
+        sampled_locs = tf.reshape(sampled_locs, (nGlimpses, batch_size, 2, nAttn))
+        sampled_locs = tf.transpose(sampled_locs, [1, 0, 2, 3])
+
+        print [m.get_shape() for m in mean_locs]
+        mean_locs = tf.concat(0, mean_locs)
+        print "tag [07]", (nGlimpses, batch_size, 2), mean_locs.get_shape()
+        mean_locs = tf.reshape(mean_locs, (nGlimpses, batch_size, 2, nAttn))
+        mean_locs = tf.transpose(mean_locs, [1, 0, 2, 3])
+
+        sampled_locs_stopGrad = tf.concat(0, sampled_locs_stopGrad)
+        sampled_locs_stopGrad = tf.reshape(sampled_locs_stopGrad, (nGlimpses, batch_size, 2, nAttn))
+        sampled_locs_stopGrad = tf.transpose(sampled_locs_stopGrad, [1, 0, 2, 3])
+
+        mean_locs_stopGrad = tf.concat(0, mean_locs_stopGrad)
+        mean_locs_stopGrad = tf.reshape(mean_locs_stopGrad, (nGlimpses, batch_size, 2, nAttn))
+        mean_locs_stopGrad = tf.transpose(mean_locs_stopGrad, [1, 0, 2, 3])
 
     glimpse_images = tf.concat(0, glimpse_images)
 
