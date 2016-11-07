@@ -55,12 +55,12 @@ animate = 0  # 10-22-16 MORGAN: this ON and no_display_env is todo.
 # condition
 translateMnist = 1 # MORGAN: What does this do? update: looks like it randomizes the locations 
  # of initial glimpses and therefore decreases permitted # of glimpses & bandwidth from 6->4
-nAttn = 3; # MORGAN: this was added. A postitive integer.
+nAttn = 1; # MORGAN: this was added. A postitive integer.
 eyeCentered = 0
 
 preTraining = 1
 preTraining_epoch = 21# default: 20000
-drawReconsturction = 0 # default 1.  10-22-16 MORGAN: this ON and no_display_env is todo.
+drawReconsturction = 1 # default 1.  10-22-16 MORGAN: this ON and no_display_env is todo.
 
 # about translation
 MNIST_SIZE = 28
@@ -146,6 +146,7 @@ def glimpseSensor(img, normLoc):
     loc = tf.round(((normLoc + 1) / 2.0) * img_size)  # normLoc coordinates are between -1 and 1
     loc = tf.cast(loc, tf.int32)
 
+    print loc.get_shape()
     img = tf.reshape(img, (batch_size, img_size, img_size, channels))
 
     # process each image individually
@@ -174,7 +175,8 @@ def glimpseSensor(img, normLoc):
             zoom = tf.slice(one_img2, adjusted_loc, d)
 
             # resize cropped image to (sensorBandwidth x sensorBandwidth)
-            zoom = tf.image.resize_bilinear(tf.reshape(zoom, (1, d_raw, d_raw, 1)), (sensorBandwidth, sensorBandwidth))
+            zoom = tf.image.resize_bilinear(tf.reshape(zoom, (1, d_raw, d_raw, 1)), \
+                                            (sensorBandwidth, sensorBandwidth))
             zoom = tf.reshape(zoom, (sensorBandwidth, sensorBandwidth))
             imgZooms.append(zoom)
 
@@ -185,22 +187,6 @@ def glimpseSensor(img, normLoc):
     glimpse_images.append(zooms)
 
     return zooms
-
-def repeatMe(M, rank, pos=-1):
-    if pos<0: 
-        pos = rank-1
-    if rank==2:
-        if pos==1:
-            return tf.tile(M, tf.pack([1,tf.shape(M)[1]]))
-        elif pos==0:
-            return tf.tile(M, tf.pack([tf.shape(M)[0],1]))
-    elif rank==3:
-        if pos==2:
-            return tf.tile(M, tf.pack([1,1,tf.shape(M)[2]]))
-        elif pos==1:
-            return tf.tile(M, tf.pack([1,tf.shape(M)[1],1]))
-        elif pos==0:
-            return tf.tile(M, tf.pack([tf.shape(M)[0],1,1]))
 
 def get_glimpses(locs, nAttn): # TODO MORGAN: resume work here
     features = []
@@ -257,7 +243,10 @@ def get_next_input(output): # MORGAN: this is unaffected by nAttr, so no changes
     else:
         print "tag [04]. output, Wl_h_l:", output.get_shape(), Wl_h_l.get_shape()
         mean_loc = tf.matmul(output, Wl_h_l)
-        mean_loc = tf.reshape(mean_loc, [batch_size, 2, nAttn])
+        if nAttn > 1:
+            mean_loc = tf.reshape(mean_loc, [batch_size, 2, nAttn])
+        else:
+            mean_loc = tf.reshape(mean_loc, [batch_size, 2])
 
     # mean_loc = tf.stop_gradient(mean_loc)
     mean_locs.append(mean_loc)
@@ -424,9 +413,16 @@ def calc_reward(outputs):
         p_loc = tf.reshape(p_loc, (batch_size, (nGlimpses) * 2))
     else:
         p_loc = tf.reshape(p_loc, (batch_size, (nGlimpses) * 2, nAttn))
+        p_loc = tf.reduce_sum(p_loc, 2) # MORGAN: might make an unstable situation
 
     # define the cost function
-    J = tf.concat(1, [tf.log(p_y + SMALL_NUM) * (onehot_labels_placeholder), tf.log(p_loc + SMALL_NUM) * (R - no_grad_b)])
+    if nAttn==1:
+        J = tf.concat(1, [tf.log(p_y + SMALL_NUM) * (onehot_labels_placeholder), tf.log(p_loc + SMALL_NUM) * (R - no_grad_b)])
+    else:
+        J1 = tf.log(p_y + SMALL_NUM) * (onehot_labels_placeholder)
+        J2 = tf.log(p_loc + SMALL_NUM) * (R - no_grad_b)
+        print "tag {14}: J1, J2", J1.get_shape(), J2.get_shape()
+        J = tf.concat(1, [J1, J2])
     J = tf.reduce_sum(J, 1)
     J = J - tf.reduce_sum(tf.square(R - b), 1)
     J = tf.reduce_mean(J, 0)
