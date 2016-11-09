@@ -24,9 +24,11 @@ except NameError:
 
 dataset = tf_mnist_loader.read_data_sets("mnist_data")
 save_dir = "chckPts/"
+img_save_dir = "./plots/"
 save_prefix = "save"
 summaryFolderName = "summary/"
 outfilecount = 0 # MORGAN: for differentiating output images
+DISP_EPOCH = 300;
 
 if len(sys.argv) == 2:
     simulationName = str(sys.argv[1])
@@ -36,8 +38,8 @@ if len(sys.argv) == 2:
     imgsFolderName = "imgs/" + simulationName + "/"
     if os.path.isdir(summaryFolderName) == False:
         os.mkdir(summaryFolderName)
-    # if os.path.isdir(imgsFolderName) == False:
-    #     os.mkdir(imgsFolderName)
+#    if os.path.isdir(imgsFolderName) == False:
+#        os.mkdir(imgsFolderName)
 else:
     saveImgs = False
     print "Testing... image files will not be saved."
@@ -46,20 +48,23 @@ else:
 start_step = 0
 #load_path = None
 load_path = save_dir + save_prefix + str(start_step) + ".ckpt"
+save_fig_path = img_save_dir + save_prefix + "_"
+print "Plotted images (if the option is active) will be saved to directory "+img_save_dir
 # to enable visualization, set draw to True
 eval_only = False
 no_display_env = True # added by MORGAN: for a $DISPLAY-less environment such as afs.
 draw = 1
 animate = 0  # 10-22-16 MORGAN: this ON and no_display_env is todo.
+fig_counter = 0; # relevant for when no_display_env is true and figures are saved.
 
 # condition
 translateMnist = 1 # MORGAN: What does this do? update: looks like it randomizes the locations 
  # of initial glimpses and therefore decreases permitted # of glimpses & bandwidth from 6->4
-nAttn = 1; # MORGAN: this was added. A postitive integer.
+nAttn = 2; # MORGAN: this was added. A postitive integer.
 eyeCentered = 0
 
 preTraining = 1
-preTraining_epoch = 21# default: 20000
+preTraining_epoch = 2000# default: 20000
 drawReconsturction = 1 # default 1.  10-22-16 MORGAN: this ON and no_display_env is todo.
 
 # about translation
@@ -108,10 +113,11 @@ else:
 # model parameters
 channels = 1                # mnist are grayscale images
 totalSensorBandwidth = depth * channels * (sensorBandwidth **2)
-nGlimpses = 6               # number of glimpses
+nGlimpses = 3               # number of glimpses
 loc_sd = 0.11               # std when setting the location
 
-# network units
+# network units.  MORGAN: hl_size and cell_size were decremented for 
+# debugging purposes: they were actually lined up incorrectly.
 hg_size = 128               #
 hl_size = 127               #
 g_size = 256                #
@@ -122,7 +128,7 @@ cell_out_size = cell_size   #
 n_classes = 10              # card(Y)
 
 # training parameters
-max_iters = 4 # default: 1000000
+max_iters = 40000 # default: 1000000
 SMALL_NUM = 1e-10
 
 # resource prellocation
@@ -525,6 +531,7 @@ def drawMGlimpses(X,Y, img, img_size, sampled_locs):
 
 
 def plotWholeImg(img, img_size, sampled_locs_fetched):
+    plt.close(plt.figure());
     plt.imshow(np.reshape(img, [img_size, img_size]),
                cmap=plt.get_cmap('gray'), interpolation="nearest")
 
@@ -726,7 +733,11 @@ with tf.Graph().as_default():
                 plt.ion()
                 plt.show()
                 plt.subplots_adjust(top=0.7)
-                plotImgs = []
+            else:
+#                plt.savefig(save_fig_path+"draw_"+str(fig_counter))
+#                fig_counter+=1
+                pass
+            plotImgs = []
 
         if drawReconsturction:
             fig = plt.figure(2)
@@ -734,6 +745,10 @@ with tf.Graph().as_default():
             if not no_display_env:
                 plt.ion()
                 plt.show()
+            else:
+                pass
+#                plt.savefig(save_fig_path+"reconstr_"+str(fig_counter))
+#                fig_counter+=1
 
         if preTraining:
             for epoch_r in xrange(1,preTraining_epoch):
@@ -747,29 +762,35 @@ with tf.Graph().as_default():
 
                 reconstructionCost_fetched, reconstruction_fetched, train_op_r_fetched = sess.run(fetches_r, feed_dict={inputs_placeholder: nextX})
 
-                if epoch_r % 20 == 0:
+                if epoch_r % DISP_EPOCH == 0:
                     print('Step %d: reconstructionCost = %.5f' % (epoch_r, reconstructionCost_fetched))
-                    if epoch_r % 100 == 0:
-                        if drawReconsturction:
-                            fig = plt.figure(2)
+                    if no_display_env and not epoch_r==preTraining_epoch: continue # MORGAN 
+                    if epoch_r % 100 == 0 or epoch_r==preTraining_epoch:
+                        if no_display_env:
+                            break;
+                        fig = plt.figure(2)
+                        plt.subplot(1, 2, 1)
+                        # v Type: mpl.image.~~~[AxesImage], MORGAN
+                        IMG = plt.imshow(np.reshape(nextX[0, :], [img_size, img_size]),
+                                   cmap=plt.get_cmap('gray'), interpolation="nearest")
+                        print type(IMG)
+                        plt.ylim((img_size - 1, 0))
+                        plt.xlim((0, img_size - 1))
 
-                            plt.subplot(1, 2, 1)
-                            plt.imshow(np.reshape(nextX[0, :], [img_size, img_size]),
-                                       cmap=plt.get_cmap('gray'), interpolation="nearest")
-                            plt.ylim((img_size - 1, 0))
-                            plt.xlim((0, img_size - 1))
+                        plt.subplot(1, 2, 2)
+                        plt.imshow(np.reshape(reconstruction_fetched[0, :], [img_size, img_size]),
+                                   cmap=plt.get_cmap('gray'), interpolation="nearest")
+                        plt.ylim((img_size - 1, 0))
+                        plt.xlim((0, img_size - 1))
 
-                            plt.subplot(1, 2, 2)
-                            plt.imshow(np.reshape(reconstruction_fetched[0, :], [img_size, img_size]),
-                                       cmap=plt.get_cmap('gray'), interpolation="nearest")
-                            plt.ylim((img_size - 1, 0))
-                            plt.xlim((0, img_size - 1))
+                        if drawReconsturction and not no_display_env:
                             plt.draw()
                             plt.pause(0.0001)
-                            # plt.show()
-                    if no_display_env:
-                        pass# drawMGlimpses()
-                        # here, draw the last MxN glimpses.
+                            plt.show()
+                        elif no_display_env:
+#                            plt.savefig(save_fig_path+"anim_draw_"+str(fig_counter))
+#                            fig_counter+=1
+                            pass
 
 
         # training
@@ -794,31 +815,37 @@ with tf.Graph().as_default():
             _, cost_fetched, reward_fetched, prediction_labels_fetched, correct_labels_fetched, glimpse_images_fetched, \
             avg_b_fetched, rminusb_fetched, mean_locs_fetched, sampled_locs_fetched, lr_fetched = results
 
-
             duration = time.time() - start_time
 
-            if epoch % 20 == 0:
+            if epoch % DISP_EPOCH == 0:
                 print('Step %d: cost = %.5f reward = %.5f (%.3f sec) b = %.5f R-b = %.5f, LR = %.5f'
                       % (epoch, cost_fetched, reward_fetched, duration, avg_b_fetched, rminusb_fetched, lr_fetched))
                 summary_str = sess.run(summary_op, feed_dict=feed_dict)
                 summary_writer.add_summary(summary_str, epoch)
-                # if saveImgs:
-                #     plt.savefig(imgsFolderName + simulationName + '_ep%.6d.png' % (epoch))
+                if saveImgs: # <v  MORGAN 11/17: was commented out. UPDATE 11/8:see line 'tag [13]'
+                    plt.savefig(save_fig_path + simulationName + '_ep%.6d.png' % (epoch))
 
                 if epoch % 5000 == 0:
-                    saver.save(sess, save_dir + save_prefix + str(epoch) + ".ckpt")
-                    evaluate()
+                    print "Saving model..."
+#                    saver.save(sess, save_dir + save_prefix + str(epoch) + ".ckpt")
+#                    evaluate()
 
                 ##### DRAW WINDOW ################
-                f_glimpse_images = np.reshape(glimpse_images_fetched, \
-                                              (nGlimpses, batch_size, depth, sensorBandwidth, sensorBandwidth))
+                if nAttn==1:
+                    f_glimpse_images = np.reshape(glimpse_images_fetched, \
+                              (nGlimpses, batch_size, depth, sensorBandwidth, sensorBandwidth))
+                else:
+                    f_glimpse_images = np.reshape(glimpse_images_fetched, \
+                              (nGlimpses, batch_size, depth, sensorBandwidth, sensorBandwidth, nAttn))
+
 
                 if draw:
+                    #if no_display_env and epoch % 200==0:
                     if no_display_env:
                         drawMGlimpses(nextX, nextY, nextX[0,:], img_size, sampled_locs_fetched)
-                        plt.savefig(simulationName+'_train_'+str(outfilecount)+'.png')
+                        plotWholeImg(nextX[0, :], img_size, sampled_locs_fetched)
+                        plt.savefig(save_fig_path+'train_'+str(outfilecount)+'.png') # tag [13]
                         outfilecount+=1
-                        #TODO
                         pass
                     if animate:
                         fillList = False
@@ -852,16 +879,19 @@ with tf.Graph().as_default():
                             time.sleep(0.1)
                             plt.pause(0.00005)
 
-                    else:
+                    #else:
+                    elif not no_display_env:
                         txt.set_text('PREDICTION: %i\nTRUTH: %i' % (prediction_labels_fetched[0], correct_labels_fetched[0]))
                         for x in xrange(depth):
                            for y in xrange(nGlimpses):
                               for z in xrange(nAttn):
                                 plt.subplot(depth, nGlimpses, x * nGlimpses + y + 1)
-                                plt.imshow(f_glimpse_images[y, 0, x], cmap=plt.get_cmap('gray'), interpolation="nearest")
+                                plt.imshow(f_glimpse_images[y, 0, x], cmap=plt.get_cmap('gray'), \
+                                            interpolation="nearest")
 
                         plt.draw()
                         time.sleep(0.05)
                         plt.pause(0.0001)
 
+    evaluate()
     sess.close()
