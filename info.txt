@@ -10,3 +10,81 @@ ram.py is unchanged.
 - UPDATE: moved mram.py to _mram.py and have new mram2.py.  This new mram2.py
 will output [MANY!] images with the name meant for saving session in ./summary
 The overhaul will occur here.
+
+
+11/07/16, 1:41 AM:
+Just initiated 3 overnight tests in screens.  The first, original, takes
+ng=6 glimpses and na=1 attention foci, ie, the original model.  The second, 
+high_nAttn, takes ng=6 glimpses and na=3 attentions, ie an overpowered 
+attentional model that should either fail to converge (???) or do better, due
+to being able to access more information.  The third, tradeoff, takes ng=3
+glimpses and na=2 attention foci, and this should tell about what is traded
+off and which model is better when you pay for attentional centers with later
+glimpses.    
+
+recall that commands are 'screen -ls' for listing of sessions, 'screen -r' to
+reattach a session, and CTRL-A CTRL-D to detatch a session after screen has 
+been called to run.  This particular testing session has sockets at 11735, 
+11575, and 11457.  'screen -X -S [pid] quit' closes a session.
+
+update: after being shut out of corn (ie inability for python to start due
+to the current directory being inaccessible !!!!!!), couldn't debug the issue
+of the plots breaking.
+
+11/9:  To limit cpu usage of a process, use <cpulimit --pid [pid] --limit [% integer]>.
+11/13: plots directory: numbered folders are development runs, as are t_[i]. 
+    m_o_[i] are medium_original_mram_[i] runs, for comparison against future
+    mram runs.
+  Specific trials:
+  - m_o_02, or MEDIUM_orig_ram_02.txt, takes 1 nAttn and 6 glimpses, has 
+    virtually no pretraining (due to perceived inability to be effective at
+    improving looking ability over few pretraining epoch, a claim that is 
+    very questionable).  Next trials will reattempt with a large number of 
+    pretraining epochs to observe effectiveness.
+  - m_o_03: adds evaluation capability to more than just epochs at 5000.
+  - m_o_04: testing plot saving scheme to enable concurrent tests to run.
+  - m_o_05, m_o_06 will respectively test having large versus small pretraining.
+    The parameters are: 4000 pretrain & 6000 train VS 0 pretrain & 10000 train.
+    m_o_07 i think had 20000 pretrain and 5000 train, but iTerm CRASHED during 
+    m_o_05-7.
+  CRASH: at about 1:45 am 11/14.  iTerm appears to have had too many things to
+    handle, specificially: a 2-pane dual tmux hotkey, a 3pane tmux vim, and a
+    8-pane [3-parallel-process, 3 modifiers on those processes, 1 vim, 1 top]
+     =~= 2+1+3+1+8 = 15 processes total, plus a pushed load anyways.
+  After analysis of (partially-completed) trials 05-07, I observed that only 
+  the model that had no pretraining whatsoever was able to learn with any 
+  effectiveness.  The other two literally did not change their accuracies 
+  whatsoever.  I suspect just a bug, but regardless, the glimpses immediately 
+  aim for (0,0) after a small handful of glimpses.
+    Now, I'm going to run similar tests but with no pretraining. I will run
+    two trials, both with N=40000 iterations, of o-ram, mram, and op-ram (ie,
+    original ram with nAttn=1 and glimpses=6; mram with nAttn=2 and glimpses=3,
+    and op-ram (OP mram) with nAttn=3 and glimpses=6).  I'll do them in 
+    parallel with the intention of letting them run overnight while I sleep.
+    Trials numbered 10.
+  RESULTS: 11/14/16, 1:30pm.  Trials o-ram [10] and mram [10] finished with the
+    following results:  - the two trials trained in nearly identical times.
+    - the trials had accuracies that both began at ~17% at trial 500.  Over the
+    course of training, mram consistently had better accuracies than oram, 
+    ending at trial 10000 with evaulation accuracies: 79.7% for mram, 71.8% for
+    oram.  More details can be seen or pulled in MEDIUM_mram_10.txt and 
+    MEDIUM_orig_ram_10.txt.  Plots are a little hard to parse.  
+    11/15/16, 1am: computer crashed, but the op_ram model with 3 attn and 6
+    glimpses was at about 82.7% accurate at 8500 epochs without pretraining.
+    
+    
+Next goals :
+    - include augmenting plots to display [Correct?], [Guess], and [glimpses, 
+    attn] all in the same plot. 
+    - script-ify the model to take arguments, for composition in a script.
+
+11.23.16
+
+currently the two files mram3.py are identical.  Uploading to git
+the updated file(s) that can effectively train RAMs with any number of nAttn
+and nGlimpses.  About to (1) convert them into a script and (1.5) possibly 
+"oop-ify" them into classes, (2) fix/augment the graphing, (3) then run long
+tests, specifically with nG=6 and nA=2, (4) create task #1 of distance to
+center of box, (5) create task #2 of sum of distances to nA points, 
+(6) create task #3 of same-difference task using digits using task #2's code.
+
