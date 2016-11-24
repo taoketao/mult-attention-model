@@ -1,24 +1,39 @@
-# 10/22/16   Morgan Bryant
-#
-# See comments at top of ./_mram.py
-# One note though: a comprehensive port of matplotlib, pyplot, etc are being 
-# done in order to permit image saving instead of showing.
+"""
+11/23/16   Morgan Bryant
 
+Arguments/Parameters: Invoke as 'python mram3.py -h' or 'ipython mram3.py -- -h'
+
+See info.txt for information.  This was originally a version of a mult-ram that ran 
+effectively and is being augmented to provide the following improvements:
+  (1) Convert the current single-run format into a argument-receptive runnable script;
+  (2) Augment and empower the matplotlib visualizations for a better understanding
+      of the model's workings;
+  (3) Create several new tasks for the model to learn, specifically:
+        (a) distance to point,
+        (b) distance to digit box center,
+        (c) distance to nAttn points,
+        (d) (min) distance to nAttn digit box centers,
+        (e) the same-difference problem between two digits.
+Once these are completed, extended tests should be sufficient to draw conclusions 
+about the effectiveness / tradeoff between multiple attention mechanisms in a 
+recurrent attention model.
+
+"""
+
+#################################   IMPORTS & VERSIONS & SETUP ##################################
 import tensorflow as tf
 import tf_mnist_loader
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-import time
-import random
-import sys
-import os
+import time, random, sys, os, argparse
 from datetime import datetime
 startTime = datetime.now()
 
-print "Matplotlib version:", matplotlib.__version__
-
+mplv = matplotlib.__version__
+if not mplv in ["1.5.1", "1.3.1"]:
+    print "Matplotlib version:", mplv, "not accounted for in development; take caution."
 try:
     xrange
 except NameError:
@@ -28,20 +43,65 @@ dataset = tf_mnist_loader.read_data_sets("mnist_data")
 save_dir = "chckPts/"
 img_save_dir = "./plots/"
 save_prefix = "save"
-summaryFolderName = "summary/"
-outfilecount = 0 # MORGAN: for differentiating output images
-DISP_EPOCH = 50;
+summaryFolderName = "./summary/"
+start_step = 0
+load_path = save_dir + save_prefix + str(start_step) + ".ckpt"
+save_fig_path = img_save_dir + save_prefix + "_"
+print "Plotted images (if the option is active) will be saved to directory "+img_save_dir
 
-if len(sys.argv) >= 2:
-    simulationName = str(sys.argv[1])
+
+#######################################    SETUP    #######################################
+
+outfilecount = 0 # MORGAN: for differentiating output images
+
+parser = argparse.ArgumentParser(['--file']+sys.argv)
+parser.add_argument("--nAttn",'--na','--nA','-a', help="how many foci of attention desired", type=int)
+parser.add_argument("--nGlimpses",'--ng','--nG','-g', help="how many glimpses per atteion mechanism",\
+        type=int)
+s = "recommended simulation filename for saving capacities. set to 'none' for off, else default.."
+parser.add_argument("--simulation", '-s', help=s, type=str)
+parser.add_argument("--disp_epoch", '-d', help="how infrequently to display/save images", type=int)
+parser.add_argument("--eval_only", help="recommended: off.", type=int)
+parser.add_argument("--no_display_env", help="switch on when environment lacks a $DISPLAY", type=bool)
+parser.add_argument("--draw", help="switch off to turn off drawing", type=bool)
+parser.add_argument("--animate", help="switch on for **untested unstable** animation.", type=bool)
+parser.add_argument("--translateMnist", help="switch off to standardize locations.", type=bool)
+parser.add_argument("--eyeCentered", help="switch on if not centered eye -- unsure what effect"+\
+        "this has.", type=bool)
+parser.add_argument("--preTraining", help="turn pretraining on/off.", type=bool)
+parser.add_argument("--preTraining_epoch", help="number of pretraining epochs.", type=int)
+parser.add_argument("--drawReconstruction", help="", type=int)
+parser.add_argument("--initLr", help="init learning rate.  Default: 5e-3", type=float)
+parser.add_argument("--lrDecayRate", help="learning rate decay per epoch. Default: 0.995", type=float)
+parser.add_argument("--lrDecayFreq", help="unknown function, consult tensorflow; default 500", type=int)
+parser.add_argument("--momentumValue", help="momentum for learning rules; default 0.9", type=float)
+parser.add_argument("--batch_size", help="batch size; default 20.", type=int)
+parser.add_argument("--depth", help="number of views per glimpse; default 3", type=int)
+parser.add_argument("--sensorBandwidth", help="default 12. Views -> min * 2**depth.", type=int)
+parser.add_argument("--minRadius", help="default 6. Views -> min * 2**depth.", type=int)
+parser.add_argument("--loc_sd", help="std when setting the location, default 0.11", type=float)
+parser.add_argument("--hg_size", help="glimpse-to-hidden network size, default 128.", type=int)
+parser.add_argument("--hl_size", help="location-to-hidden network size, default 128", type=int)
+parser.add_argument("--g_size", help="glimpseNet size, default 256", type=int)
+parser.add_argument("--cell_size", help="core recurrent cell size, default 256", type=int)
+parser.add_argument("--cell_out_size", help="core recurrent cell output size, default = cell_size.", \
+        type=int)
+parser.add_argument("--max_iters",'-t','-n','--train', help="Number of training epochs.", type=int)
+parser.add_argument("--n_classes", help="number of outputs for the actionNet", type=int)
+#parser.add_argument("--", help=" ", type=int)
+
+args = parser.parse_args()
+
+if not args.simulation=='none':
+    if not args.simulation: 
+        args.simulation = 'default'
+        print "Saving and OVERWRITING summary, etc as <default>!"
+    simulationName = args.simulation
     print "Simulation name = " + simulationName
     summaryFolderName = summaryFolderName + simulationName + "/"
     saveImgs = True
-    imgsFolderName = "imgs/" + simulationName + "/"
     if os.path.isdir(summaryFolderName) == False:
         os.mkdir(summaryFolderName)
-#    if os.path.isdir(imgsFolderName) == False:
-#        os.mkdir(imgsFolderName)
     if len(sys.argv) == 3:
         img_save_dir += sys.argv[2]
         if not img_save_dir[-1]=='/':
@@ -52,28 +112,35 @@ else:
     saveImgs = False
     print "Testing... image files will not be saved."
 
-eval_only = 0;
-start_step = 0
-#load_path = None
-load_path = save_dir + save_prefix + str(start_step) + ".ckpt"
-save_fig_path = img_save_dir + save_prefix + "_"
-print "Plotted images (if the option is active) will be saved to directory "+img_save_dir
+if not args.disp_epoch: disp_epoch = 50;
+else: disp_epoch = args.disp_epoch 
+print "disp_epoch:", disp_epoch
+if not args.eval_only: eval_only = 0;
+else: eval_only = args.eval_only;
 # to enable visualization, set draw to True
-val_only = False
-no_display_env = False # added by MORGAN: for a $DISPLAY-less environment such as afs.
-draw = 1
-animate = 0  # 10-22-16 MORGAN: this ON and no_display_env is todo.
+if not args.no_display_env: no_display_env = False # added by MORGAN: for a $DISPLAY-less environment
+else: no_display_env = args.no_display_env
+if not args.draw: draw = 1
+else: draw = args.draw
+if not args.animate: animate = 0  # 10-22-16 MORGAN: this ON and no_display_env is todo.
+else: animate = args.animate
 fig_counter = 0; # relevant for when no_display_env is true and figures are saved.
 
 # condition
-translateMnist = 1 # MORGAN: What does this do? update: looks like it randomizes the locations 
- # of initial glimpses and therefore decreases permitted # of glimpses & bandwidth from 6->4
-nAttn = 3; # MORGAN: this was added. A postitive integer.
-eyeCentered = 0
+if not args.translateMnist: translateMnist = 1 # MORGAN: What does this do? update: looks like it randomizes 
+else: translateMnist = args.translateMnist
+# the locations  of initial glimpses and therefore decreases permitted # of glimpses & bandwidth from 6->4
+if not args.nAttn: nAttn = 1; # MORGAN: this was added. A postitive integer.
+else: nAttn = args.nAttn
+if not args.eyeCentered: eyeCentered = 0
+else: eyeCentered = args.eyeCentered
 
-preTraining = 1
-preTraining_epoch = 2# default: 20000
-drawReconsturction = 1 # default 1.  10-22-16 MORGAN: this ON and no_display_env is todo.
+if not args.preTraining: preTraining = 0
+else: preTraining = args.preTraining
+if not args.preTraining_epoch: preTraining_epoch = 20000
+else: preTraining_epoch = args.preTraining_epoch
+if not args.drawReconstruction: drawReconstruction = 1 # default 1.  10-22-16 MORGAN: this ON and no_display_env is todo.
+else: drawReconstruction = args.drawReconstruction
 
 # about translation
 MNIST_SIZE = 28
@@ -121,22 +188,31 @@ else:
 # model parameters
 channels = 1                # mnist are grayscale images
 totalSensorBandwidth = depth * channels * (sensorBandwidth **2)
-nGlimpses = 6               # number of glimpses
-loc_sd = 0.11               # std when setting the location
+if not args.nGlimpses: nGlimpses = 6         # number of glimpses
+else: nGlimpses = args.nGlimpses
+if not args.loc_sd: loc_sd = 0.11            # std when setting the location
+else: loc_sd = args.loc_sd
 
 # network units.  MORGAN: hl_size and cell_size were decremented for 
 # debugging purposes: they were actually lined up incorrectly.
-hg_size = 128               #
-hl_size = 127               #
-g_size = 256                #
-cell_size = 255             #
-cell_out_size = cell_size   #
+if not args.hg_size:         hg_size = 128               #
+else: hg_size = args.hg_size
+if not args.hl_size:         hl_size = 127               #
+else: hl_size = args.hl_size
+if not args.g_size:          g_size = 256                #
+else: g_size = args.g_size
+if not args.cell_size:       cell_size = 255             #
+else: cell_size = args.cell_size
+if not args.cell_out_size:   cell_out_size = cell_size   #
+else: cell_out_size = args.cell_out_size
 
 # paramters about the training examples
-n_classes = 10              # card(Y)
+if not args.n_classes: n_classes = 10              # card(Y)
+else: n_classes = args.n_classes
 
 # training parameters
-max_iters = 10000 # default: 1000000
+if not args.max_iters: max_iters = 10000 # default: 1000000
+else: max_iters = args.max_iters
 SMALL_NUM = 1e-10
 
 # resource prellocation
@@ -252,7 +328,8 @@ def get_next_input(output): # MORGAN: this is unaffected by nAttr, so no changes
     if eyeCentered:
         # add the last sampled glimpse location
         # TODO max(-1, min(1, u + N(output, sigma) + prevLoc))
-        mean_loc = tf.maximum(-1.0, tf.minimum(1.0, tf.matmul(output, Wl_h_l) + sampled_locs[-1] ))
+        mean_loc = tf.maximum(-1.0, tf.minimum(1.0, \
+                   tf.matmul(output, Wl_h_l) + sampled_locs[-1] ))
         print "tag [05]"
     else:
         print "tag [04]. output, Wl_h_l:", output.get_shape(), Wl_h_l.get_shape()
@@ -555,6 +632,7 @@ def plotWholeImg(img, img_size, sampled_locs_fetched):
              color='red')
 
 
+print "TIME: ", datetime.now()-startTime
 
 with tf.Graph().as_default():
 
@@ -747,7 +825,7 @@ with tf.Graph().as_default():
 #                pass
 #            plotImgs = []
 #
-        if drawReconsturction:
+        if drawReconstruction:
             fig = plt.figure(2)
             txt = fig.suptitle("-", fontsize=36, fontweight='bold')
             if not no_display_env:
@@ -771,35 +849,34 @@ with tf.Graph().as_default():
                 reconstructionCost_fetched, reconstruction_fetched, train_op_r_fetched = \
                                 sess.run(fetches_r, feed_dict={inputs_placeholder: nextX})
 
-                if epoch_r % DISP_EPOCH == 0:
+                if epoch_r % disp_epoch == 0:
                     print('Step %d: reconstructionCost = %.5f' % (epoch_r, reconstructionCost_fetched))
                     if no_display_env and not epoch_r==preTraining_epoch: continue # MORGAN 
-                    if epoch_r % 100 == 0 or epoch_r==preTraining_epoch:
-                        if 1: #no_display_env:
-                            break;
-                        fig = plt.figure(2)
-                        plt.subplot(1, 2, 1)
-                        # v Type: mpl.image.~~~[AxesImage], MORGAN
-                        IMG = plt.imshow(np.reshape(nextX[0, :], [img_size, img_size]),
-                                   cmap=plt.get_cmap('gray'), interpolation="nearest")
-                        print type(IMG)
-                        plt.ylim((img_size - 1, 0))
-                        plt.xlim((0, img_size - 1))
+                    if 1: #no_display_env:
+                        break;
+                    fig = plt.figure(2)
+                    plt.subplot(1, 2, 1)
+                    # v Type: mpl.image.~~~[AxesImage], MORGAN
+                    IMG = plt.imshow(np.reshape(nextX[0, :], [img_size, img_size]),
+                               cmap=plt.get_cmap('gray'), interpolation="nearest")
+                    print type(IMG)
+                    plt.ylim((img_size - 1, 0))
+                    plt.xlim((0, img_size - 1))
 
-                        plt.subplot(1, 2, 2)
-                        plt.imshow(np.reshape(reconstruction_fetched[0, :], [img_size, img_size]),
-                                   cmap=plt.get_cmap('gray'), interpolation="nearest")
-                        plt.ylim((img_size - 1, 0))
-                        plt.xlim((0, img_size - 1))
+                    plt.subplot(1, 2, 2)
+                    plt.imshow(np.reshape(reconstruction_fetched[0, :], [img_size, img_size]),
+                               cmap=plt.get_cmap('gray'), interpolation="nearest")
+                    plt.ylim((img_size - 1, 0))
+                    plt.xlim((0, img_size - 1))
 
-                        if drawReconsturction and not no_display_env:
-                            plt.draw()
-                            plt.pause(0.0001)
-                            plt.show()
-                        elif no_display_env:
+                    if drawReconstruction and not no_display_env:
+                        plt.draw()
+                        plt.pause(0.0001)
+                        plt.show()
+                    elif no_display_env:
 #                            plt.savefig(save_fig_path+"anim_draw_"+str(fig_counter))
 #                            fig_counter+=1
-                            pass
+                        pass
 
 
         # training
@@ -827,7 +904,7 @@ with tf.Graph().as_default():
 
             duration = time.time() - start_time
 
-            if epoch % DISP_EPOCH == 0:
+            if epoch % disp_epoch == 0:
                 print('Step %d: cost = %.5f reward = %.5f (%.3f sec) b = %.5f R-b = %.5f, LR = %.5f'
                       % (epoch, cost_fetched, reward_fetched, duration, avg_b_fetched, \
                               rminusb_fetched, lr_fetched))
