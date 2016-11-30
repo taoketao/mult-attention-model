@@ -41,13 +41,10 @@ except NameError:
 
 dataset = tf_mnist_loader.read_data_sets("mnist_data")
 save_dir = "chckPts/"
-img_save_dir = "./plots/"
 save_prefix = "save"
 summaryFolderName = "./summary/"
 start_step = 0
 load_path = save_dir + save_prefix + str(start_step) + ".ckpt"
-save_fig_path = img_save_dir + save_prefix + "_"
-print "Plotted images (if the option is active) will be saved to directory "+img_save_dir
 
 
 #######################################    SETUP    #######################################
@@ -88,6 +85,11 @@ parser.add_argument("--cell_out_size", help="core recurrent cell output size, de
         type=int)
 parser.add_argument("--max_iters",'-t','-n','--train', help="Number of training epochs.", type=int)
 parser.add_argument("--n_classes", help="number of outputs for the actionNet", type=int)
+parser.add_argument("--augment_viz", help="spruce up the visualized graphs with extra data", type=bool)
+s = 'Which objective to train for: options are: classification (default), distance.'
+parser.add_argument("--objective", '-o', help=s, type=str);
+parser.add_argument("--translated_img_size", help="Size of target image field, cp. mnist=28.", type=int)
+parser.add_argument("--plot_accuracies", "--acc", help="Plot accuracies?", type=bool)
 #parser.add_argument("--", help=" ", type=int)
 
 args = parser.parse_args()
@@ -102,15 +104,16 @@ if not args.simulation=='none':
     saveImgs = True
     if os.path.isdir(summaryFolderName) == False:
         os.mkdir(summaryFolderName)
-    if len(sys.argv) == 3:
-        img_save_dir += sys.argv[2]
-        if not img_save_dir[-1]=='/':
-            img_save_dir+= '/'
-    try: os.makedirs(img_save_dir)
-    except OSError: pass
 else:
     saveImgs = False
     print "Testing... image files will not be saved."
+
+
+img_save_dir = "./plots_"+simulationName+'/'
+save_fig_path = img_save_dir + save_prefix + "_"
+try: os.makedirs(img_save_dir)
+except OSError: pass
+print "Plotted images (if the option is active) will be saved to directory "+img_save_dir
 
 if not args.disp_epoch: disp_epoch = 50;
 else: disp_epoch = args.disp_epoch 
@@ -139,50 +142,60 @@ if not args.preTraining: preTraining = 0
 else: preTraining = args.preTraining
 if not args.preTraining_epoch: preTraining_epoch = 20000
 else: preTraining_epoch = args.preTraining_epoch
-if not args.drawReconstruction: drawReconstruction = 1 # default 1.  10-22-16 MORGAN: this ON and no_display_env is todo.
+if not args.drawReconstruction: drawReconstruction = 1 # 10-22-16 MORGAN: this ON and no_display_env is todo.
 else: drawReconstruction = args.drawReconstruction
+if not args.augment_viz: augment_viz = True
+else: augment_viz = args.augment_viz
+if not args.objective: objective = 'classification'
+else: objective = args.objective
+
 
 # about translation
 MNIST_SIZE = 28
-translated_img_size = 60             # side length of the picture
+if not args.translated_img_size: translated_img_size = 60   # side length of the picture
+else: translated_img_size = args.translated_img_size
 
 if translateMnist: # MORGAN: I think this is the true situation
     print "TRANSLATED MNIST"
-    if nAttn == 1:
-        img_size = translated_img_size
-        depth = 3  # number of zooms
-        sensorBandwidth = 12
-        minRadius = 6  # zooms -> minRadius * 2**<depth_level>
+    img_size = translated_img_size
+    if not args.depth: depth = 3  # number of zooms
+    else: depth = args.depth
+    if not args.sensorBandwidth: sensorBandwidth = 12
+    else: sensorBandwidth = args.sensorBandwidth
+    if not args.minRadius: minRadius = 6  # zooms -> minRadius * 2**<depth_level>
+    else: minRadius = args.minRadius
 
-        initLr = 5e-3
-        lrDecayRate = .995
-        lrDecayFreq = 500
-        momentumValue = .9
-        batch_size = 20
-    else: # other limited parameters. For now they are identical.
-        img_size = translated_img_size
-        depth = 3  # number of zooms
-        sensorBandwidth = 12
-        minRadius = 6  # zooms -> minRadius * 2**<depth_level>
-
-        initLr = 5e-3
-        lrDecayRate = .995
-        lrDecayFreq = 500
-        momentumValue = .9
-        batch_size = 20
+    if not args.initLr: initLr = 5e-3
+    else: initLr = args.initLr
+    if not args.lrDecayRate: lrDecayRate = .995
+    else: lrDecayRate = args.lrDecayRate
+    if not args.lrDecayFreq: lrDecayFreq = 500
+    else: lrDecayFreq = args.lrDecayFreq
+    if not args.momentumValue: momentumValue = .9
+    else: momentumValue = args.momentumValue
+    if not args.batch_size: batch_size = 20
+    else: batch_size = args.batch_size
         
 else:
     print "CENTERED MNIST"
     img_size = MNIST_SIZE
-    depth = 1  # number of zooms
-    sensorBandwidth = 8
-    minRadius = 4  # zooms -> minRadius * 2**<depth_level>
+    if not args.depth: depth = 1  # number of zooms
+    else: depth = args.depth
+    if not args.sensorBandwidth: sensorBandwidth = 8
+    else: sensorBandwidth = args.sensorBandwidth
+    if not args.minRadius: minRadius = 4  # zooms -> minRadius * 2**<depth_level>
+    else: minRadius = args.minRadius
 
-    initLr = 5e-3
-    lrDecayRate = .99
-    lrDecayFreq = 200
-    momentumValue = .9
-    batch_size = 20
+    if not args.initLr: initLr = 5e-3
+    else: initLr = args.initLr
+    if not args.lrDecayRate: lrDecayRate = .99
+    else: lrDecayRate = args.lrDecayRate
+    if not args.lrDecayFreq: lrDecayFreq = 200
+    else: lrDecayFreq = args.lrDecayFreq
+    if not args.momentumValue: momentumValue = .9
+    else: momentumValue = args.momentumValue
+    if not args.batch_size: batch_size = 20
+    else: batch_size = args.batch_size
 
 
 # model parameters
@@ -224,6 +237,9 @@ sampled_locs_stopGrad = []
 
 baselines = []              # baseline, the value prediction
 glimpse_images = []         # to show in window
+accuracies = {}             # accuracies, for the sake of plotting learning trajectories.
+if not args.plot_accuracies: plot_accuracies = False
+else: plot_accuracies = True
 
 
 # set the weights to be small random values, with truncated normal distribution
@@ -507,8 +523,10 @@ def calc_reward(outputs):
         p_loc = tf.reduce_sum(p_loc, 2) # MORGAN: might make an unstable situation
 
     # define the cost function
+    #if objective=='classification':
     if nAttn==1:
-        J = tf.concat(1, [tf.log(p_y + SMALL_NUM) * (onehot_labels_placeholder), tf.log(p_loc + SMALL_NUM) * (R - no_grad_b)])
+        J = tf.concat(1, [tf.log(p_y + SMALL_NUM) * (onehot_labels_placeholder), \
+                tf.log(p_loc + SMALL_NUM) * (R - no_grad_b)])
     else:
         J1 = tf.log(p_y + SMALL_NUM) * (onehot_labels_placeholder)
         J2 = tf.log(p_loc + SMALL_NUM) * (R - no_grad_b)
@@ -518,6 +536,8 @@ def calc_reward(outputs):
     J = J - tf.reduce_sum(tf.square(R - b), 1)
     J = tf.reduce_mean(J, 0)
     cost = -J
+#    elif objective=='distance':
+#        pass
 
     # define the optimizer
     optimizer = tf.train.MomentumOptimizer(lr, momentumValue)
@@ -544,7 +564,7 @@ def preTrain(outputs):
 
 
 
-def evaluate():
+def evaluate(return_flag=None):
     data = dataset.test
     batches_in_epoch = len(data._images) // batch_size
     accuracy = 0
@@ -559,6 +579,7 @@ def evaluate():
         accuracy += r
 
     accuracy /= batches_in_epoch
+    if return_flag: return accuracy
     print("ACCURACY: " + str(accuracy))
 
 
@@ -895,8 +916,18 @@ with tf.Graph().as_default():
 
             fetches = [train_op, cost, reward, predicted_labels, correct_labels, glimpse_images, \
                         avg_b, rminusb, mean_locs, sampled_locs, lr]
+            # types: [none, float, float, arr(20,), arr(20,), arr(120,3,12,12),  \
+            #            float, float, arr(20,6,2), arr(20,6,2), float]
             # feed them to the model
             results = sess.run(fetches, feed_dict=feed_dict)
+#            if epoch==2:
+#                print 'results:', 
+#                for r in results:
+#                    try: print type(r)
+#                    except:pass
+#                    try: print '  ',r.shape
+#                    except:pass
+
 
             _, cost_fetched, reward_fetched, prediction_labels_fetched, correct_labels_fetched, \
                         glimpse_images_fetched, avg_b_fetched, rminusb_fetched, mean_locs_fetched, \
@@ -928,11 +959,25 @@ with tf.Graph().as_default():
                     f_glimpse_images = np.reshape(glimpse_images_fetched, \
                               (nGlimpses, batch_size, depth, sensorBandwidth, sensorBandwidth, nAttn))
 
+                accuracies[epoch] = evaluate('return')
+                if plot_accuracies:
+                    print "Accuracy at this epoch #", epoch, ":", accuracies[epoch]
 
                 if draw:
                     #if no_display_env and epoch % 200==0:
                     if 1: #no_display_env:
                         drawMGlimpses(nextX, nextY, nextX[0,:], img_size, sampled_locs_fetched)
+                        if augment_viz:
+                            plt.title("Guess: "+str(prediction_labels_fetched[0])+"    Truth: "+\
+                                    str(correct_labels_fetched[0]))
+                            offset = MNIST_SIZE/2
+                            plt.text(nextX_coord[0,1]+offset, nextX_coord[0,0]+offset, 'X', \
+                                            bbox=dict(facecolor='green',
+                                alpha=0.5));
+                            print nextX_coord[0,:]
+                            if epoch==1:
+                                print nextX_coord[:,:]
+#plt.text(60, .025, r'$\mu=100,\ \sigma=15$')                            plt.title(+nextX_coord
                         plotWholeImg(nextX[0, :], img_size, sampled_locs_fetched)
                         plt.savefig(save_fig_path+'train_epoch_'+str(epoch)+'.png') # tag [13]
                     #    plt.close()
@@ -987,4 +1032,19 @@ with tf.Graph().as_default():
 #
     evaluate()
     sess.close()
+    if plot_accuracies:
+        print "Accuracies:"
+        for key in sorted(accuracies.keys()):
+            print "  epoch:", key, "  acc: ", accuracies[key]
+        k = sorted(accuracies.keys())
+        v = [accuracies[k_] for k_ in k]
+        plt.close();
+        plt.plot(k, v)
+        s = "num attns: "+str(nAttn)+", num glimpses: "+str(nGlimpses)+", num iterations:"+\
+                str(max_iters)
+        plt.title(s)
+        plt.xlabel("Epoch")
+        plt.ylabel("[Training] Accuracy")
+        if 1: # nodisplayenv
+            plt.savefig(save_fig_path+'accuracies.png') # tag [14]
     print "EXECUTION TIME: ", datetime.now() - startTime 

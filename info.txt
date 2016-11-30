@@ -88,3 +88,16 @@ tests, specifically with nG=6 and nA=2, (4) create task #1 of distance to
 center of box, (5) create task #2 of sum of distances to nA points, 
 (6) create task #3 of same-difference task using digits using task #2's code.
 
+11.30.16
+Currently running tests.  Running nA=2, nG=6 and nA=1, nG=6 tests at 4200 epochs
+each, with plotting capacities in place.  4200 epochs, at about 3.2 seconds per
+epoch, should take about 3:40 hours, running at 150% CPU each.
+Have begun implementing the next objective: specifically, #2 of the [refined]
+list below:
+ 1) single digit classification: current objective
+ 2) distance to center: useful for pretraining and development.
+ 3) distance to n centers, n==nAttns
+ 4) classification of n centers, n=nAttns
+ 5) same-difference task
+Incidentally, these lend themselves to compositionality and curriculum-
+-friendly task. 
