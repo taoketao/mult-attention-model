@@ -101,3 +101,16 @@ list below:
  5) same-difference task
 Incidentally, these lend themselves to compositionality and curriculum-
 -friendly task. 
+After realizing that I had the print rate waaay to frequent (ie, plot every
+tenth epoch, not every 500th as before), the comp time should drastically 
+improve.
+
+
+11.30.16 update:
+The 15000 trials of nG=6 both, nA=1 and nA=2 for two trials, concluded with
+results that the curves are nearly superimposable but nA=2 has about a 0.1 
+accuracy boost, settling at about a 0.7 boost.  The learning dynamics are 
+strangely similar.  Neither could be said to reach their asymptote, and with
+no initialized accuracies plotted, it can be hard to say precisely why this 
+directness is observed. 
+On another note, I should really start looking into alternative models...
